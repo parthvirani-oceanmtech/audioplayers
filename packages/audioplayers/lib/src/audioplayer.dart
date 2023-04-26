@@ -348,11 +348,11 @@ class AudioPlayer {
   /// be used anymore. If you try to use it after this you will get errors.
   Future<void> dispose() async {
     // First stop and release all native resources.
+
     await release();
 
-    await _platform.dispose(playerId);
-
     final futures = <Future>[
+      creatingCompleter.future,
       if (!_playerStateController.isClosed) _playerStateController.close(),
       _onPlayerCompleteStreamSubscription.cancel(),
       _onLogStreamSubscription.cancel(),
@@ -363,5 +363,7 @@ class AudioPlayer {
     _source = null;
 
     await Future.wait<dynamic>(futures);
+    await _platform.dispose(playerId);
+
   }
 }
