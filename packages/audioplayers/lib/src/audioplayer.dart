@@ -57,8 +57,7 @@ class AudioPlayer {
 
   Stream<AudioEvent> get eventStream => _eventStreamController.stream;
 
-  final StreamController<PlayerState> _playerStateController =
-      StreamController<PlayerState>.broadcast();
+  final StreamController<PlayerState> _playerStateController = StreamController<PlayerState>.broadcast();
 
   /// Stream of changes on player state.
   Stream<PlayerState> get onPlayerStateChanged => _playerStateController.stream;
@@ -69,17 +68,15 @@ class AudioPlayer {
   /// position of the playback if the status is [PlayerState.playing].
   ///
   /// You can use it on a progress bar, for instance.
-  Stream<Duration> get onPositionChanged => eventStream
-      .where((event) => event.eventType == AudioEventType.position)
-      .map((event) => event.position!);
+  Stream<Duration> get onPositionChanged =>
+      eventStream.where((event) => event.eventType == AudioEventType.position).map((event) => event.position!);
 
   /// Stream of changes on audio duration.
   ///
   /// An event is going to be sent as soon as the audio duration is available
   /// (it might take a while to download or buffer it).
-  Stream<Duration> get onDurationChanged => eventStream
-      .where((event) => event.eventType == AudioEventType.duration)
-      .map((event) => event.duration!);
+  Stream<Duration> get onDurationChanged =>
+      eventStream.where((event) => event.eventType == AudioEventType.duration).map((event) => event.duration!);
 
   /// Stream of player completions.
   ///
@@ -87,19 +84,16 @@ class AudioPlayer {
   /// sent when an audio is paused or stopped.
   ///
   /// [ReleaseMode.loop] also sends events to this stream.
-  Stream<void> get onPlayerComplete =>
-      eventStream.where((event) => event.eventType == AudioEventType.complete);
+  Stream<void> get onPlayerComplete => eventStream.where((event) => event.eventType == AudioEventType.complete);
 
   /// Stream of seek completions.
   ///
   /// An event is going to be sent as soon as the audio seek is finished.
-  Stream<void> get onSeekComplete => eventStream
-      .where((event) => event.eventType == AudioEventType.seekComplete);
+  Stream<void> get onSeekComplete => eventStream.where((event) => event.eventType == AudioEventType.seekComplete);
 
   /// Stream of log events.
-  Stream<String> get onLog => eventStream
-      .where((event) => event.eventType == AudioEventType.log)
-      .map((event) => event.logMessage!);
+  Stream<String> get onLog =>
+      eventStream.where((event) => event.eventType == AudioEventType.log).map((event) => event.logMessage!);
 
   /// An unique ID generated for this instance of [AudioPlayer].
   ///
@@ -348,11 +342,11 @@ class AudioPlayer {
   /// be used anymore. If you try to use it after this you will get errors.
   Future<void> dispose() async {
     // First stop and release all native resources.
+
     await release();
 
-    await _platform.dispose(playerId);
-
     final futures = <Future>[
+      creatingCompleter.future,
       if (!_playerStateController.isClosed) _playerStateController.close(),
       _onPlayerCompleteStreamSubscription.cancel(),
       _onLogStreamSubscription.cancel(),
@@ -363,5 +357,6 @@ class AudioPlayer {
     _source = null;
 
     await Future.wait<dynamic>(futures);
+    await _platform.dispose(playerId);
   }
 }
