@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:audioplayers_example/components/indexed_stack.dart';
 import 'package:audioplayers_example/components/tabs.dart';
 import 'package:audioplayers_example/components/tgl.dart';
 import 'package:audioplayers_example/tabs/audio_context.dart';
@@ -117,9 +116,7 @@ class _ExampleAppState extends State<_ExampleApp> {
                 return PopupMenuItem<PopupAction>(
                   value: choice,
                   child: Text(
-                    choice == PopupAction.add
-                        ? 'Add player'
-                        : 'Remove selected player',
+                    choice == PopupAction.add ? 'Add player' : 'Remove selected player',
                   ),
                 );
               }).toList();
@@ -148,7 +145,7 @@ class _ExampleAppState extends State<_ExampleApp> {
           Expanded(
             child: audioPlayers.isEmpty
                 ? const Text('No AudioPlayer available!')
-                : IndexedStack2(
+                : IndexedStack(
                     index: selectedPlayerIdx,
                     children: audioPlayers
                         .map(
