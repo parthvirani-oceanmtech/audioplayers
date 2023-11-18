@@ -1,3 +1,5 @@
+// ignore_for_file: lines_longer_than_80_chars
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:audioplayers_example/components/cbx.dart';
 import 'package:audioplayers_example/components/drop_down.dart';
@@ -18,8 +20,7 @@ class AudioContextTab extends StatefulWidget {
   AudioContextTabState createState() => AudioContextTabState();
 }
 
-class AudioContextTabState extends State<AudioContextTab>
-    with AutomaticKeepAliveClientMixin<AudioContextTab> {
+class AudioContextTabState extends State<AudioContextTab> with AutomaticKeepAliveClientMixin<AudioContextTab> {
   static GlobalAudioScope get _global => AudioPlayer.global;
 
   AudioPlayer get player => widget.player;
@@ -28,7 +29,7 @@ class AudioContextTabState extends State<AudioContextTab>
   AudioContextConfig audioContextConfig = AudioContextConfig();
 
   /// Set config for each platform individually
-  AudioContext audioContext = AudioContext();
+  AudioContext audioContext = const AudioContext();
 
   @override
   Widget build(BuildContext context) {
@@ -133,8 +134,7 @@ class AudioContextTabState extends State<AudioContextTab>
         Cbx(
           'Respect Silence',
           value: audioContextConfig.respectSilence,
-          ({value}) =>
-              updateConfig(audioContextConfig.copy(respectSilence: value)),
+          ({value}) => updateConfig(audioContextConfig.copy(respectSilence: value)),
         ),
         Cbx(
           'Stay Awake',
@@ -211,7 +211,7 @@ class AudioContextTabState extends State<AudioContextTab>
           value: options.contains(option),
           ({value}) {
             updateAudioContextIOS(() {
-              final iosContext = audioContext.iOS.copy(options: options);
+              final iosContext = audioContext.iOS.copy(options: options.toList());
               if (value ?? false) {
                 options.add(option);
               } else {
