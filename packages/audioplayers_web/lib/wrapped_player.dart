@@ -4,6 +4,7 @@ import 'dart:html';
 import 'package:audioplayers_platform_interface/audioplayers_platform_interface.dart';
 import 'package:audioplayers_web/num_extension.dart';
 import 'package:audioplayers_web/web_audio_js.dart';
+import 'package:flutter/services.dart';
 
 class WrappedPlayer {
   final String playerId;
@@ -18,21 +19,27 @@ class WrappedPlayer {
 
   AudioElement? player;
   StereoPannerNode? _stereoPanner;
-  StreamSubscription? _playerTimeUpdateSubscription;
   StreamSubscription? _playerEndedSubscription;
   StreamSubscription? _playerLoadedDataSubscription;
   StreamSubscription? _playerPlaySubscription;
   StreamSubscription? _playerSeekedSubscription;
+  StreamSubscription? _playerErrorSubscription;
 
   WrappedPlayer(this.playerId);
 
   Future<void> setUrl(String url) async {
     if (_currentUrl == url) {
-      return; // nothing to do
+      eventStreamController.add(
+        const AudioEvent(
+          eventType: AudioEventType.prepared,
+          isPrepared: true,
+        ),
+      );
+      return;
     }
     _currentUrl = url;
 
-    stop();
+    release();
     recreateNode();
     if (_isPlaying) {
       await resume();
@@ -67,6 +74,8 @@ class WrappedPlayer {
     p.volume = _currentVolume;
     p.playbackRate = _currentPlaybackRate;
 
+    _setupStreams(p);
+
     // setup stereo panning
     final audioContext = JsAudioContext();
     final source = audioContext.createMediaElementSource(player!);
@@ -74,34 +83,34 @@ class WrappedPlayer {
     source.connect(_stereoPanner!);
     _stereoPanner?.connect(audioContext.destination);
 
+    // Preload the source
+    p.load();
+  }
+
+  void _setupStreams(AudioElement p) {
+    _playerLoadedDataSubscription = p.onLoadedData.listen(
+      (_) {
+        eventStreamController.add(
+          const AudioEvent(
+            eventType: AudioEventType.prepared,
+            isPrepared: true,
+          ),
+        );
+        eventStreamController.add(
+          AudioEvent(
+            eventType: AudioEventType.duration,
+            duration: p.duration.fromSecondsToDuration(),
+          ),
+        );
+      },
+      onError: eventStreamController.addError,
+    );
     _playerPlaySubscription = p.onPlay.listen(
       (_) {
         eventStreamController.add(
           AudioEvent(
             eventType: AudioEventType.duration,
             duration: p.duration.fromSecondsToDuration(),
-          ),
-        );
-      },
-      onError: eventStreamController.addError,
-    );
-    _playerLoadedDataSubscription = p.onLoadedData.listen(
-      (_) {
-        eventStreamController.add(
-          AudioEvent(
-            eventType: AudioEventType.duration,
-            duration: p.duration.fromSecondsToDuration(),
-          ),
-        );
-      },
-      onError: eventStreamController.addError,
-    );
-    _playerTimeUpdateSubscription = p.onTimeUpdate.listen(
-      (_) {
-        eventStreamController.add(
-          AudioEvent(
-            eventType: AudioEventType.position,
-            position: p.currentTime.fromSecondsToDuration(),
           ),
         );
       },
@@ -117,10 +126,33 @@ class WrappedPlayer {
     );
     _playerEndedSubscription = p.onEnded.listen(
       (_) {
-        _pausedAt = 0;
-        player?.currentTime = 0;
+        if (_currentReleaseMode == ReleaseMode.release) {
+          release();
+        } else {
+          stop();
+        }
         eventStreamController.add(
           const AudioEvent(eventType: AudioEventType.complete),
+        );
+      },
+      onError: eventStreamController.addError,
+    );
+    _playerErrorSubscription = p.onError.listen(
+      (_) {
+        String platformMsg;
+        if (p.error is MediaError) {
+          platformMsg = 'Failed to set source. For troubleshooting, see '
+              'https://github.com/bluefireteam/audioplayers/blob/main/troubleshooting.md';
+        } else {
+          platformMsg = 'Unknown web error. See details.';
+        }
+        eventStreamController.addError(
+          PlatformException(
+            code: 'WebAudioError',
+            message: platformMsg,
+            details: '${p.error?.runtimeType}: '
+                '${p.error?.message} (Code: ${p.error?.code})',
+          ),
         );
       },
       onError: eventStreamController.addError,
@@ -135,20 +167,23 @@ class WrappedPlayer {
   }
 
   void release() {
-    _cancel();
+    stop();
+    // Release `AudioElement` correctly (#966)
+    player?.src = '';
+    player?.remove();
     player = null;
     _stereoPanner = null;
 
     _playerLoadedDataSubscription?.cancel();
     _playerLoadedDataSubscription = null;
-    _playerTimeUpdateSubscription?.cancel();
-    _playerTimeUpdateSubscription = null;
     _playerEndedSubscription?.cancel();
     _playerEndedSubscription = null;
     _playerSeekedSubscription?.cancel();
     _playerSeekedSubscription = null;
     _playerPlaySubscription?.cancel();
     _playerPlaySubscription = null;
+    _playerErrorSubscription?.cancel();
+    _playerErrorSubscription = null;
   }
 
   Future<void> start(double position) async {
@@ -174,7 +209,7 @@ class WrappedPlayer {
   }
 
   void stop() {
-    _cancel();
+    pause();
     _pausedAt = 0;
     player?.currentTime = 0;
   }
@@ -188,14 +223,6 @@ class WrappedPlayer {
     }
   }
 
-  void _cancel() {
-    _isPlaying = false;
-    player?.pause();
-    if (_currentReleaseMode == ReleaseMode.release) {
-      player = null;
-    }
-  }
-
   void log(String message) {
     eventStreamController.add(
       AudioEvent(eventType: AudioEventType.log, logMessage: message),
@@ -203,6 +230,7 @@ class WrappedPlayer {
   }
 
   Future<void> dispose() async {
+    release();
     eventStreamController.close();
   }
 }

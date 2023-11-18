@@ -2,10 +2,10 @@ import 'package:flutter/foundation.dart';
 
 enum AudioEventType {
   log,
-  position,
   duration,
   seekComplete,
   complete,
+  prepared,
 }
 
 /// Event emitted from the platform implementation.
@@ -17,8 +17,8 @@ class AudioEvent {
   const AudioEvent({
     required this.eventType,
     this.duration,
-    this.position,
     this.logMessage,
+    this.isPrepared,
   });
 
   /// The type of the event.
@@ -27,11 +27,11 @@ class AudioEvent {
   /// Duration of the audio.
   final Duration? duration;
 
-  /// Position of the audio.
-  final Duration? position;
-
   /// Log message in the player scope.
   final String? logMessage;
+
+  /// Whether the source is prepared to be played.
+  final bool? isPrepared;
 
   @override
   bool operator ==(Object other) {
@@ -40,16 +40,16 @@ class AudioEvent {
             runtimeType == other.runtimeType &&
             eventType == other.eventType &&
             duration == other.duration &&
-            position == other.position &&
-            logMessage == other.logMessage;
+            logMessage == other.logMessage &&
+            isPrepared == other.isPrepared;
   }
 
   @override
   int get hashCode => Object.hash(
         eventType,
         duration,
-        position,
         logMessage,
+        isPrepared,
       );
 
   @override
@@ -57,8 +57,8 @@ class AudioEvent {
     return 'AudioEvent('
         'eventType: $eventType, '
         'duration: $duration, '
-        'position: $position, '
-        'logMessage: $logMessage'
+        'logMessage: $logMessage, '
+        'isPrepared: $isPrepared'
         ')';
   }
 }

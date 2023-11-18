@@ -2,9 +2,10 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../platform_features.dart';
-import '../source_test_data.dart';
-import '../test_utils.dart';
+import '../../platform_features.dart';
+import '../../test_utils.dart';
+import '../app_source_test_data.dart';
+import '../app_test_utils.dart';
 import 'properties.dart';
 
 Future<void> testStreamsTab(
@@ -17,15 +18,12 @@ Future<void> testStreamsTab(
   await tester.pumpAndSettle();
 
   // Stream position is tracked as soon as source is loaded
-  if (features.hasPositionEvent && !audioSourceTestData.isLiveStream) {
+  if (!audioSourceTestData.isLiveStream) {
     // Display position before playing
     await tester.testPosition(Duration.zero);
   }
 
-  final isImmediateDurationSupported =
-      features.hasMp3Duration || !audioSourceTestData.sourceKey.contains('mp3');
-
-  if (features.hasDurationEvent && isImmediateDurationSupported) {
+  if (features.hasDurationEvent && !audioSourceTestData.isVBR) {
     // Display duration before playing
     await tester.testDuration(audioSourceTestData.duration);
   }
@@ -35,12 +33,12 @@ Future<void> testStreamsTab(
 
   await tester.pumpAndSettle();
   await tester.scrollToAndTap(const Key('play_button'));
-  await tester.pumpAndSettle();
+  await tester.pump();
 
   // Cannot test more precisely as it is dependent on pollInterval
   // and updateInterval of native implementation.
   if (audioSourceTestData.isLiveStream ||
-      audioSourceTestData.duration > const Duration(seconds: 2)) {
+      audioSourceTestData.duration! > const Duration(seconds: 2)) {
     // Test player state: playing
     if (features.hasPlayerStateEvent) {
       // Only test, if there's enough time to be able to check playing state.
@@ -49,23 +47,24 @@ Future<void> testStreamsTab(
     }
 
     // Test if onPositionText is set.
-    if (features.hasPositionEvent) {
-      await tester.testPosition(
-        Duration.zero,
-        matcher: greaterThan,
-        timeout: timeout,
-      );
-      await tester.testOnPosition(
-        Duration.zero,
-        matcher: greaterThan,
-        timeout: timeout,
-      );
-    }
+    await tester.testPosition(
+      Duration.zero,
+      matcher: (Duration? position) => greaterThan(position ?? Duration.zero),
+      timeout: timeout,
+    );
+    await tester.testOnPosition(
+      Duration.zero,
+      matcher: greaterThan,
+      timeout: timeout,
+    );
   }
 
   if (features.hasDurationEvent && !audioSourceTestData.isLiveStream) {
     // Test if onDurationText is set.
-    await tester.testOnDuration(audioSourceTestData.duration, timeout: timeout);
+    await tester.testOnDuration(
+      audioSourceTestData.duration!,
+      timeout: timeout,
+    );
   }
 
   const sampleDuration = Duration(seconds: 3);
@@ -74,10 +73,10 @@ Future<void> testStreamsTab(
   // Test player states: pause, stop, completed
   if (features.hasPlayerStateEvent) {
     if (!audioSourceTestData.isLiveStream) {
-      if (audioSourceTestData.duration < const Duration(seconds: 2)) {
+      if (audioSourceTestData.duration! < const Duration(seconds: 2)) {
         await tester.testPlayerState(PlayerState.completed, timeout: timeout);
         await tester.testOnPlayerState(PlayerState.completed, timeout: timeout);
-      } else if (audioSourceTestData.duration > const Duration(seconds: 5)) {
+      } else if (audioSourceTestData.duration! > const Duration(seconds: 5)) {
         await tester.scrollToAndTap(const Key('pause_button'));
         await tester.pumpAndSettle();
         await tester.testPlayerState(PlayerState.paused);
@@ -104,28 +103,23 @@ Future<void> testStreamsTab(
     await tester.testDuration(audioSourceTestData.duration);
     if (!audioSourceTestData.isLiveStream) {
       await tester.testOnDuration(
-        audioSourceTestData.duration,
+        audioSourceTestData.duration!,
         timeout: timeout,
       );
     }
   }
-  if (features.hasPositionEvent && !audioSourceTestData.isLiveStream) {
+  if (!audioSourceTestData.isLiveStream) {
     await tester.testPosition(Duration.zero);
   }
 }
 
 extension StreamWidgetTester on WidgetTester {
-  // Precision for duration & position:
-  // Android: two tenth of a second
+  // Precision for position & duration:
+  // Android: millisecond
   // Windows: millisecond
-  // Linux: second
-  // Web: second
-
-  // Update interval for duration & position:
-  // Android: two tenth of a second
-  // Windows: ~250ms
-  // Linux: second
-  // Web: second
+  // Linux: millisecond
+  // Web: millisecond
+  // Darwin: millisecond
 
   Future<void> stopStream() async {
     final st = StackTrace.current.toString();
@@ -144,7 +138,11 @@ extension StreamWidgetTester on WidgetTester {
     await waitFor(
       () async => expectWidgetHasDuration(
         const Key('onDurationText'),
-        matcher: (Duration? actual) => durationRangeMatcher(actual, duration),
+        matcher: (Duration? actual) => durationRangeMatcher(
+          actual,
+          duration,
+          deviation: const Duration(milliseconds: 500),
+        ),
       ),
       timeout: timeout,
       stackTrace: st,

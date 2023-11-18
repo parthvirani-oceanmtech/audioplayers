@@ -17,6 +17,8 @@ void main() {
     required String playerId,
   }) async {
     final player = AudioPlayer(playerId: playerId);
+    // Avoid unpredictable position updates
+    player.positionUpdater = null;
     expect(player.source, null);
     await player.creatingCompleter.future;
     expect(platform.popCall().method, 'create');
@@ -51,8 +53,7 @@ void main() {
       final call1 = platform.popCall();
       expect(call1.method, 'setSourceUrl');
       expect(call1.value, 'internet.com/file.mp3');
-      final call2 = platform.popLastCall();
-      expect(call2.method, 'resume');
+      expect(platform.popLastCall().method, 'resume');
     });
 
     test('multiple players', () async {
@@ -63,8 +64,7 @@ void main() {
       expect(call1.id, 'p1');
       expect(call1.method, 'setSourceUrl');
       expect(call1.value, 'internet.com/file.mp3');
-      final call2 = platform.popLastCall();
-      expect(call2.method, 'resume');
+      expect(platform.popLastCall().method, 'resume');
 
       platform.clear();
       await player.play(UrlSource('internet.com/file.mp3'));
@@ -92,6 +92,29 @@ void main() {
       await player.pause();
       expect(platform.popLastCall().method, 'pause');
     });
+
+    test('set #volume, #balance, #playbackRate, #playerMode, #releaseMode',
+        () async {
+      await player.setVolume(0.1);
+      expect(player.volume, 0.1);
+      expect(platform.popLastCall().method, 'setVolume');
+
+      await player.setBalance(0.2);
+      expect(player.balance, 0.2);
+      expect(platform.popLastCall().method, 'setBalance');
+
+      await player.setPlaybackRate(0.3);
+      expect(player.playbackRate, 0.3);
+      expect(platform.popLastCall().method, 'setPlaybackRate');
+
+      await player.setPlayerMode(PlayerMode.lowLatency);
+      expect(player.mode, PlayerMode.lowLatency);
+      expect(platform.popLastCall().method, 'setPlayerMode');
+
+      await player.setReleaseMode(ReleaseMode.loop);
+      expect(player.releaseMode, ReleaseMode.loop);
+      expect(platform.popLastCall().method, 'setReleaseMode');
+    });
   });
 
   group('AudioPlayers Events', () {
@@ -107,10 +130,6 @@ void main() {
         const AudioEvent(
           eventType: AudioEventType.duration,
           duration: Duration(milliseconds: 98765),
-        ),
-        const AudioEvent(
-          eventType: AudioEventType.position,
-          position: Duration(milliseconds: 8765),
         ),
         const AudioEvent(
           eventType: AudioEventType.log,
@@ -129,8 +148,8 @@ void main() {
         emitsInOrder(audioEvents),
       );
 
-      audioEvents.forEach(platform.eventStreamController.add);
-      await platform.eventStreamController.close();
+      audioEvents.forEach(platform.eventStreamControllers['p1']!.add);
+      await platform.eventStreamControllers['p1']!.close();
     });
   });
 }

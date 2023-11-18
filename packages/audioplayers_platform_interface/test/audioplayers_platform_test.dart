@@ -13,14 +13,6 @@ void main() {
   final platform = AudioplayersPlatformInterface.instance;
 
   final methodCalls = <MethodCall>[];
-  TestDefaultBinaryMessengerBinding.instance!.defaultBinaryMessenger
-      .setMockMethodCallHandler(
-    const MethodChannel('xyz.luan/audioplayers'),
-    (MethodCall methodCall) async {
-      methodCalls.add(methodCall);
-      return 0;
-    },
-  );
 
   void clear() {
     methodCalls.clear();
@@ -36,7 +28,24 @@ void main() {
   }
 
   group('AudioPlayers Method Channel', () {
-    setUp(clear);
+    setUp(() {
+      clear();
+
+      createNativeMethodHandler(
+        channel: 'xyz.luan/audioplayers',
+        handler: (MethodCall methodCall) async {
+          methodCalls.add(methodCall);
+          switch (methodCall.method) {
+            case 'getDuration':
+              return 0;
+            case 'getCurrentPosition':
+              return 0;
+            default:
+              return null;
+          }
+        },
+      );
+    });
 
     test('#setSource', () async {
       await platform.setSourceUrl('p1', 'internet.com/file.mp3');
@@ -83,22 +92,21 @@ void main() {
   group('AudioPlayers Event Channel', () {
     test('emit events', () async {
       final eventController = StreamController<ByteData>.broadcast();
+      const playerId = 'p1';
 
       createNativeEventStream(
-        channel: 'xyz.luan/audioplayers/events/p1',
+        channel: 'xyz.luan/audioplayers/events/$playerId',
         byteDataStream: eventController.stream,
       );
 
+      await platform.create(playerId);
+
       expect(
-        platform.getEventStream('p1'),
+        platform.getEventStream(playerId),
         emitsInOrder(<AudioEvent>[
           const AudioEvent(
             eventType: AudioEventType.duration,
             duration: Duration(milliseconds: 98765),
-          ),
-          const AudioEvent(
-            eventType: AudioEventType.position,
-            position: Duration(milliseconds: 8765),
           ),
           const AudioEvent(
             eventType: AudioEventType.log,
@@ -119,10 +127,6 @@ void main() {
           'value': 98765,
         },
         <String, dynamic>{
-          'event': 'audio.onCurrentPosition',
-          'value': 8765,
-        },
-        <String, dynamic>{
           'event': 'audio.onLog',
           'value': 'someLogMessage',
         },
@@ -140,6 +144,7 @@ void main() {
       }
 
       await eventController.close();
+      await platform.dispose(playerId);
     });
   });
 }

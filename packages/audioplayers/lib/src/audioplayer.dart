@@ -1,9 +1,7 @@
 import 'dart:async';
-// TODO(gustl22): remove when upgrading min Flutter version to >=3.3.0
-// ignore: unnecessary_import
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:audioplayers/src/uri_ext.dart';
 import 'package:audioplayers_platform_interface/audioplayers_platform_interface.dart';
 import 'package:flutter/services.dart';
 import 'package:meta/meta.dart';
@@ -26,79 +24,26 @@ class AudioPlayer {
   /// change anything as the global instance will be used by default.
   AudioCache audioCache = AudioCache.instance;
 
-  PlayerState _playerState = PlayerState.stopped;
-
-  PlayerState get state => _playerState;
+  /// An unique ID generated for this instance of [AudioPlayer].
+  ///
+  /// This is used to properly exchange messages with the [MethodChannel].
+  final String playerId;
 
   Source? _source;
 
   Source? get source => _source;
 
-  set state(PlayerState state) {
-    if (!_playerStateController.isClosed) {
-      _playerStateController.add(state);
-    }
-    _playerState = state;
-  }
+  double _volume = 1.0;
 
-  /// Completer to wait until the native player and its event stream are
-  /// created.
-  @visibleForTesting
-  final creatingCompleter = Completer<void>();
+  double get volume => _volume;
 
-  late final StreamSubscription _onPlayerCompleteStreamSubscription;
+  double _balance = 0.0;
 
-  late final StreamSubscription _onLogStreamSubscription;
+  double get balance => _balance;
 
-  /// Stream controller to be able to get a stream on initialization, before the
-  /// native event stream is ready via [_create] method.
-  final _eventStreamController = StreamController<AudioEvent>.broadcast();
-  late final StreamSubscription _eventStreamSubscription;
+  double _playbackRate = 1.0;
 
-  Stream<AudioEvent> get eventStream => _eventStreamController.stream;
-
-  final StreamController<PlayerState> _playerStateController = StreamController<PlayerState>.broadcast();
-
-  /// Stream of changes on player state.
-  Stream<PlayerState> get onPlayerStateChanged => _playerStateController.stream;
-
-  /// Stream of changes on audio position.
-  ///
-  /// Roughly fires every 200 milliseconds. Will continuously update the
-  /// position of the playback if the status is [PlayerState.playing].
-  ///
-  /// You can use it on a progress bar, for instance.
-  Stream<Duration> get onPositionChanged =>
-      eventStream.where((event) => event.eventType == AudioEventType.position).map((event) => event.position!);
-
-  /// Stream of changes on audio duration.
-  ///
-  /// An event is going to be sent as soon as the audio duration is available
-  /// (it might take a while to download or buffer it).
-  Stream<Duration> get onDurationChanged =>
-      eventStream.where((event) => event.eventType == AudioEventType.duration).map((event) => event.duration!);
-
-  /// Stream of player completions.
-  ///
-  /// Events are sent every time an audio is finished, therefore no event is
-  /// sent when an audio is paused or stopped.
-  ///
-  /// [ReleaseMode.loop] also sends events to this stream.
-  Stream<void> get onPlayerComplete => eventStream.where((event) => event.eventType == AudioEventType.complete);
-
-  /// Stream of seek completions.
-  ///
-  /// An event is going to be sent as soon as the audio seek is finished.
-  Stream<void> get onSeekComplete => eventStream.where((event) => event.eventType == AudioEventType.seekComplete);
-
-  /// Stream of log events.
-  Stream<String> get onLog =>
-      eventStream.where((event) => event.eventType == AudioEventType.log).map((event) => event.logMessage!);
-
-  /// An unique ID generated for this instance of [AudioPlayer].
-  ///
-  /// This is used to properly exchange messages with the [MethodChannel].
-  final String playerId;
+  double get playbackRate => _playbackRate;
 
   /// Current mode of the audio player. Can be updated at any time, but is going
   /// to take effect only at the next time you play the audio.
@@ -110,6 +55,87 @@ class AudioPlayer {
 
   ReleaseMode get releaseMode => _releaseMode;
 
+  PlayerState _playerState = PlayerState.stopped;
+
+  PlayerState get state => _playerState;
+
+  set state(PlayerState state) {
+    if (_playerState == PlayerState.disposed) {
+      throw Exception('AudioPlayer has been disposed');
+    }
+    if (!_playerStateController.isClosed) {
+      _playerStateController.add(state);
+    }
+    _playerState = state;
+  }
+
+  PositionUpdater? _positionUpdater;
+
+  /// Completer to wait until the native player and its event stream are
+  /// created.
+  @visibleForTesting
+  final creatingCompleter = Completer<void>();
+
+  late final StreamSubscription _onPlayerCompleteStreamSubscription;
+
+  late final StreamSubscription _onSeekCompleteStreamSubscription;
+
+  late final StreamSubscription _onLogStreamSubscription;
+
+  /// Stream controller to be able to get a stream on initialization, before the
+  /// native event stream is ready via [_create] method.
+  final _eventStreamController = StreamController<AudioEvent>.broadcast();
+  late final StreamSubscription _eventStreamSubscription;
+
+  Stream<AudioEvent> get eventStream => _eventStreamController.stream;
+
+  final StreamController<PlayerState> _playerStateController =
+      StreamController<PlayerState>.broadcast();
+
+  /// Stream of changes on player state.
+  Stream<PlayerState> get onPlayerStateChanged => _playerStateController.stream;
+
+  /// Stream of changes on audio position.
+  ///
+  /// Roughly fires every 200 milliseconds. Will continuously update the
+  /// position of the playback if the status is [PlayerState.playing].
+  ///
+  /// You can use it on a progress bar, for instance.
+  Stream<Duration> get onPositionChanged =>
+      _positionUpdater?.positionStream ?? const Stream.empty();
+
+  /// Stream of changes on audio duration.
+  ///
+  /// An event is going to be sent as soon as the audio duration is available
+  /// (it might take a while to download or buffer it).
+  Stream<Duration> get onDurationChanged => eventStream
+      .where((event) => event.eventType == AudioEventType.duration)
+      .map((event) => event.duration!);
+
+  /// Stream of player completions.
+  ///
+  /// Events are sent every time an audio is finished, therefore no event is
+  /// sent when an audio is paused or stopped.
+  ///
+  /// [ReleaseMode.loop] also sends events to this stream.
+  Stream<void> get onPlayerComplete =>
+      eventStream.where((event) => event.eventType == AudioEventType.complete);
+
+  /// Stream of seek completions.
+  ///
+  /// An event is going to be sent as soon as the audio seek is finished.
+  Stream<void> get onSeekComplete => eventStream
+      .where((event) => event.eventType == AudioEventType.seekComplete);
+
+  Stream<bool> get _onPrepared => eventStream
+      .where((event) => event.eventType == AudioEventType.prepared)
+      .map((event) => event.isPrepared!);
+
+  /// Stream of log events.
+  Stream<String> get onLog => eventStream
+      .where((event) => event.eventType == AudioEventType.log)
+      .map((event) => event.logMessage!);
+
   /// Creates a new instance and assigns an unique id to it.
   AudioPlayer({String? playerId}) : playerId = playerId ?? _uuid.v4() {
     _onLogStreamSubscription = onLog.listen(
@@ -120,17 +146,24 @@ class AudioPlayer {
       ),
     );
     _onPlayerCompleteStreamSubscription = onPlayerComplete.listen(
-      (_) {
+      (_) async {
         state = PlayerState.completed;
         if (releaseMode == ReleaseMode.release) {
           _source = null;
         }
+        await _positionUpdater?.stopAndUpdate();
       },
       onError: (Object _, [StackTrace? __]) {
         /* Errors are already handled via log stream */
       },
     );
+    _onSeekCompleteStreamSubscription = onSeekComplete.listen((event) async {
+      await _positionUpdater?.update();
+    });
     _create();
+    positionUpdater = FramePositionUpdater(
+      getPosition: getCurrentPosition,
+    );
   }
 
   Future<void> _create() async {
@@ -141,8 +174,8 @@ class AudioPlayer {
             onError: _eventStreamController.addError,
           );
       creatingCompleter.complete();
-    } on Exception catch (e, st) {
-      creatingCompleter.completeError(e, st);
+    } on Exception catch (e, stackTrace) {
+      creatingCompleter.completeError(e, stackTrace);
     }
   }
 
@@ -166,11 +199,13 @@ class AudioPlayer {
     if (ctx != null) {
       await setAudioContext(ctx);
     }
+
+    await setSource(source);
     if (position != null) {
       await seek(position);
     }
-    await setSource(source);
-    return resume();
+
+    await resume();
   }
 
   Future<void> setAudioContext(AudioContext ctx) async {
@@ -192,6 +227,7 @@ class AudioPlayer {
     await creatingCompleter.future;
     await _platform.pause(playerId);
     state = PlayerState.paused;
+    await _positionUpdater?.stopAndUpdate();
   }
 
   /// Stops the audio that is currently playing.
@@ -202,6 +238,7 @@ class AudioPlayer {
     await creatingCompleter.future;
     await _platform.stop(playerId);
     state = PlayerState.stopped;
+    await _positionUpdater?.stopAndUpdate();
   }
 
   /// Resumes the audio that has been paused or stopped.
@@ -209,6 +246,7 @@ class AudioPlayer {
     await creatingCompleter.future;
     await _platform.resume(playerId);
     state = PlayerState.playing;
+    _positionUpdater?.start();
   }
 
   /// Releases the resources associated with this media player.
@@ -234,6 +272,7 @@ class AudioPlayer {
   ///  1 - The right channel is at full volume; the left channel is silent.
   ///  0 - Both channels are at the same volume.
   Future<void> setBalance(double balance) async {
+    _balance = balance;
     await creatingCompleter.future;
     return _platform.setBalance(playerId, balance);
   }
@@ -243,6 +282,7 @@ class AudioPlayer {
   /// 0 is mute and 1 is the max volume. The values between 0 and 1 are linearly
   /// interpolated.
   Future<void> setVolume(double volume) async {
+    _volume = volume;
     await creatingCompleter.future;
     return _platform.setVolume(playerId, volume);
   }
@@ -261,6 +301,7 @@ class AudioPlayer {
   /// iOS and macOS have limits between 0.5 and 2x
   /// Android SDK version should be 23 or higher
   Future<void> setPlaybackRate(double playbackRate) async {
+    _playbackRate = playbackRate;
     await creatingCompleter.future;
     return _platform.setPlaybackRate(playerId, playbackRate);
   }
@@ -270,8 +311,33 @@ class AudioPlayer {
   /// This will delegate to one of the specific methods below depending on
   /// the source type.
   Future<void> setSource(Source source) async {
+    // Implementations of setOnPlayer also call `creatingCompleter.future`
+    await source.setOnPlayer(this);
+  }
+
+  Future<void> _completePrepared(Future<void> Function() fun) async {
     await creatingCompleter.future;
-    return source.setOnPlayer(this);
+    final preparedCompleter = Completer<void>();
+    late StreamSubscription<bool> onPreparedSubscription;
+    onPreparedSubscription = _onPrepared.listen(
+      (isPrepared) async {
+        if (isPrepared) {
+          preparedCompleter.complete();
+          await onPreparedSubscription.cancel();
+        }
+      },
+      onError: (Object e, [StackTrace? stackTrace]) async {
+        if (!preparedCompleter.isCompleted) {
+          preparedCompleter.completeError(e, stackTrace);
+          await onPreparedSubscription.cancel();
+        }
+      },
+    );
+    await fun();
+    await preparedCompleter.future.timeout(const Duration(seconds: 30));
+
+    // Share position once after finished loading
+    await _positionUpdater?.update();
   }
 
   /// Sets the URL to a remote link.
@@ -280,8 +346,14 @@ class AudioPlayer {
   /// this method.
   Future<void> setSourceUrl(String url) async {
     _source = UrlSource(url);
-    await creatingCompleter.future;
-    return _platform.setSourceUrl(playerId, url, isLocal: false);
+    // Encode remote url to avoid unexpected failures.
+    await _completePrepared(
+      () => _platform.setSourceUrl(
+        playerId,
+        UriCoder.encodeOnce(url),
+        isLocal: false,
+      ),
+    );
   }
 
   /// Sets the URL to a file in the users device.
@@ -290,8 +362,9 @@ class AudioPlayer {
   /// this method.
   Future<void> setSourceDeviceFile(String path) async {
     _source = DeviceFileSource(path);
-    await creatingCompleter.future;
-    return _platform.setSourceUrl(playerId, path, isLocal: true);
+    await _completePrepared(
+      () => _platform.setSourceUrl(playerId, path, isLocal: true),
+    );
   }
 
   /// Sets the URL to an asset in your Flutter application.
@@ -301,15 +374,26 @@ class AudioPlayer {
   /// this method.
   Future<void> setSourceAsset(String path) async {
     _source = AssetSource(path);
-    final url = await audioCache.load(path);
-    await creatingCompleter.future;
-    return _platform.setSourceUrl(playerId, url.path, isLocal: true);
+    final cachePath = await audioCache.loadPath(path);
+    await _completePrepared(
+      () => _platform.setSourceUrl(playerId, cachePath, isLocal: true),
+    );
   }
 
   Future<void> setSourceBytes(Uint8List bytes) async {
     _source = BytesSource(bytes);
-    await creatingCompleter.future;
-    return _platform.setSourceBytes(playerId, bytes);
+    await _completePrepared(
+      () => _platform.setSourceBytes(playerId, bytes),
+    );
+  }
+
+  /// Set the PositionUpdater to control how often the position stream will be
+  /// updated. You can use the [FramePositionUpdater], the
+  /// [TimerPositionUpdater] or write your own implementation of the
+  /// [PositionUpdater].
+  set positionUpdater(PositionUpdater? positionUpdater) {
+    _positionUpdater?.dispose(); // No need to wait for dispose
+    _positionUpdater = positionUpdater;
   }
 
   /// Get audio duration after setting url.
@@ -342,13 +426,15 @@ class AudioPlayer {
   /// be used anymore. If you try to use it after this you will get errors.
   Future<void> dispose() async {
     // First stop and release all native resources.
-
     await release();
 
+    state = PlayerState.disposed;
+
     final futures = <Future>[
-      creatingCompleter.future,
+      if (_positionUpdater != null) _positionUpdater!.dispose(),
       if (!_playerStateController.isClosed) _playerStateController.close(),
       _onPlayerCompleteStreamSubscription.cancel(),
+      _onSeekCompleteStreamSubscription.cancel(),
       _onLogStreamSubscription.cancel(),
       _eventStreamSubscription.cancel(),
       _eventStreamController.close(),
@@ -357,6 +443,8 @@ class AudioPlayer {
     _source = null;
 
     await Future.wait<dynamic>(futures);
+
+    // Needs to be called after cancelling event stream subscription:
     await _platform.dispose(playerId);
   }
 }

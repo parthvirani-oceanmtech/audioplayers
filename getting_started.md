@@ -1,6 +1,7 @@
 # Getting Started
 
-This tutorial should help you get started with the audioplayers library, covering the basics but guiding you all the way through advanced features. For a more code-based approach, check the code for [our official example app](https://github.com/bluefireteam/audioplayers/tree/main/packages/audioplayers/example), that showcases every feature the library has to offer.
+This tutorial should help you get started with the audioplayers library, covering the basics but guiding you all the way through advanced features.
+You can also play around with our [official example app](https://bluefireteam.github.io/audioplayers/) and [explore the code](https://github.com/bluefireteam/audioplayers/tree/main/packages/audioplayers/example), that showcases every feature the library has to offer.
 
 In order to install this package, add the [latest version](pub.dev/packages/audioplayers) of `audioplayers` to your `pubspec.yaml` file. This packages uses [the Federated Plugin](https://docs.flutter.dev/development/packages-and-plugins/developing-packages) guidelines to support multiple platforms, so it should just work on all supported platforms your app is built for without any extra configuration. You should not need to add the `audioplayers_*` packages directly.
 
@@ -54,6 +55,22 @@ Or, if you want to set the url and start playing, using the `play` shortcut:
 
 After the URL is set, you can use the following methods to control the player:
 
+### resume
+
+Starts playback from current position (by default, from the start).
+
+```dart
+  await player.resume();
+```
+
+### seek
+
+Changes the current position (note: this does not affect the "playing" status).
+
+```dart
+  await player.seek(Duration(milliseconds: 1200));
+```
+
 ### pause
 
 Stops the playback but keeps the current position.
@@ -72,20 +89,20 @@ Stops the playback and also resets the current position.
 
 ### release
 
-Equivalent to calling `stop` and then disposing of any resources associated with this player.
+Equivalent to calling `stop` and then releasing of any resources associated with this player.
 
-This means that any streams will be disposed, memory might be de-allocated, etc.
+This means that memory might be de-allocated, etc.
 
 Note that the player is also in a ready-to-use state; if you call `resume` again any necessary resources will be re-fetch.
 
 Particularly on Android, the media player is quite resource-intensive, and this will let it go. Data will be buffered again when needed (if it's a remote file, it will be downloaded again.
 
-### resume
+### dispose
 
-Starts playback from current position (by default, from the start).
+Disposes the player. It is calling `release` and also closes all open streams. This player instance must not be used anymore!
 
 ```dart
-  await player.resume();
+  await player.dispose();
 ```
 
 ### play
@@ -98,14 +115,6 @@ Play is just a shortcut method that allows you to:
   * resume (start playing immediately)
 
 All in a single function call. For most simple use cases, it might be the only method you need.
-
-### seek
-
-Changes the current position (note: this does not affect the "playing" status).
-
-```dart
-  await player.seek(Duration(milliseconds: 1200));
-```
 
 ## Player Parameters
 
@@ -324,3 +333,15 @@ If you want to specify the playerId, you can do so when creating the playing:
 ```
 
 Two players with the same id will point to the same media player on the native side.
+
+### PositionUpdater
+
+By default, the position stream is updated on every new frame. You can change this behavior to e.g. update on a certain
+interval with the `TimerPositionUpdater` or implement your own `PositionUpdater`:
+
+```dart
+  player.positionUpdater = TimerPositionUpdater(
+    interval: const Duration(milliseconds: 100),
+    getPosition: player.getCurrentPosition,
+  );
+```

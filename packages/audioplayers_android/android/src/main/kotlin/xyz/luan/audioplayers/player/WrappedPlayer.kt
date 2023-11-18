@@ -3,11 +3,15 @@ package xyz.luan.audioplayers.player
 import android.content.Context
 import android.media.AudioManager
 import android.media.MediaPlayer
-import kotlin.math.min
-import xyz.luan.audioplayers.*
+import xyz.luan.audioplayers.AudioContextAndroid
+import xyz.luan.audioplayers.AudioplayersPlugin
+import xyz.luan.audioplayers.EventHandler
+import xyz.luan.audioplayers.PlayerMode
 import xyz.luan.audioplayers.PlayerMode.LOW_LATENCY
 import xyz.luan.audioplayers.PlayerMode.MEDIA_PLAYER
+import xyz.luan.audioplayers.ReleaseMode
 import xyz.luan.audioplayers.source.Source
+import kotlin.math.min
 
 // For some reason this cannot be accessed from MediaPlayer.MEDIA_ERROR_SYSTEM
 private const val MEDIA_ERROR_SYSTEM = -2147483648
@@ -23,7 +27,6 @@ class WrappedPlayer internal constructor(
     var source: Source? = null
         set(value) {
             if (field != value) {
-                field = value
                 if (value != null) {
                     val player = getOrCreatePlayer()
                     player.setSource(value)
@@ -34,6 +37,9 @@ class WrappedPlayer internal constructor(
                     playing = false
                     player?.release()
                 }
+                field = value
+            } else {
+                ref.handlePrepared(this, true)
             }
         }
 
@@ -61,7 +67,9 @@ class WrappedPlayer internal constructor(
         set(value) {
             if (field != value) {
                 field = value
-                player?.setRate(value)
+                if (playing) {
+                    player?.setRate(value)
+                }
             }
         }
 
@@ -95,7 +103,15 @@ class WrappedPlayer internal constructor(
         }
 
     var released = true
-    var prepared = false
+
+    var prepared: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                ref.handlePrepared(this, value)
+            }
+        }
+
     var playing = false
     var shouldSeekTo = -1
 
@@ -127,7 +143,9 @@ class WrappedPlayer internal constructor(
         if (context == audioContext) {
             return
         }
-        if (context.audioFocus != null && audioContext.audioFocus == null) {
+        if (context.audioFocus != AudioManager.AUDIOFOCUS_NONE &&
+            audioContext.audioFocus == AudioManager.AUDIOFOCUS_NONE
+        ) {
             focusManager.handleStop()
         }
         this.context = audioContext.copy()
@@ -164,10 +182,6 @@ class WrappedPlayer internal constructor(
         return if (prepared) player?.getCurrentPosition() else null
     }
 
-    fun isActuallyPlaying(): Boolean {
-        return playing && prepared && player?.isActuallyPlaying() == true
-    }
-
     val applicationContext: Context
         get() = ref.getApplicationContext()
 
@@ -189,7 +203,6 @@ class WrappedPlayer internal constructor(
                 initPlayer()
             } else if (prepared) {
                 currentPlayer.start()
-                ref.handleIsPlaying()
             }
         }
     }
@@ -259,7 +272,6 @@ class WrappedPlayer internal constructor(
         ref.handleDuration(this)
         if (playing) {
             player?.start()
-            ref.handleIsPlaying()
         }
         if (shouldSeekTo >= 0 && player?.isLiveStream() != true) {
             player?.seekTo(shouldSeekTo)
@@ -291,9 +303,6 @@ class WrappedPlayer internal constructor(
     }
 
     fun onError(what: Int, extra: Int): Boolean {
-        // When an error occurs, reset player to not [prepared].
-        // Then no functions will be called, which end up in an illegal player state.
-        prepared = false
         val whatMsg = if (what == MediaPlayer.MEDIA_ERROR_SERVER_DIED) {
             "MEDIA_ERROR_SERVER_DIED"
         } else {
@@ -307,7 +316,19 @@ class WrappedPlayer internal constructor(
             MediaPlayer.MEDIA_ERROR_TIMED_OUT -> "MEDIA_ERROR_TIMED_OUT"
             else -> "MEDIA_ERROR_UNKNOWN {extra:$extra}"
         }
-        handleError(whatMsg, extraMsg, null)
+        if (!prepared && extraMsg == "MEDIA_ERROR_SYSTEM") {
+            handleError(
+                "AndroidAudioError",
+                "Failed to set source. For troubleshooting, see: " +
+                    "https://github.com/bluefireteam/audioplayers/blob/main/troubleshooting.md",
+                "$whatMsg, $extraMsg",
+            )
+        } else {
+            // When an error occurs, reset player to not [prepared].
+            // Then no functions will be called, which end up in an illegal player state.
+            prepared = false
+            handleError("AndroidAudioError", whatMsg, extraMsg)
+        }
         return false
     }
 
@@ -339,7 +360,6 @@ class WrappedPlayer internal constructor(
     }
 
     private fun Player.configAndPrepare() {
-        setRate(rate)
         setVolumeAndBalance(volume, balance)
         setLooping(isLooping)
         prepare()
@@ -353,6 +373,6 @@ class WrappedPlayer internal constructor(
 
     fun dispose() {
         release()
-        eventHandler.endOfStream()
+        eventHandler.dispose()
     }
 }

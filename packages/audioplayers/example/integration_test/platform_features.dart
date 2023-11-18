@@ -58,7 +58,6 @@ class PlatformFeatures {
   );
 
   static const windowsPlatformFeatures = PlatformFeatures(
-    hasBytesSource: false,
     hasPlaylistSourceType: false,
     hasLowLatency: false,
     hasReleaseModeRelease: false,
@@ -85,15 +84,14 @@ class PlatformFeatures {
   final bool hasMp3Duration;
 
   final bool hasPlaybackRate;
-  final bool hasForceSpeaker;
+  final bool hasForceSpeaker; // Not yet tested
   final bool hasDuckAudio; // Not yet tested
-  final bool hasRespectSilence; // Not yet tested
+  final bool hasRespectSilence;
   final bool hasStayAwake; // Not yet tested
   final bool hasRecordingActive; // Not yet tested
   final bool hasPlayingRoute; // Not yet tested
 
   final bool hasDurationEvent;
-  final bool hasPositionEvent;
   final bool hasPlayerStateEvent;
   final bool hasErrorEvent; // Not yet tested
 
@@ -117,7 +115,6 @@ class PlatformFeatures {
     this.hasRecordingActive = true,
     this.hasPlayingRoute = true,
     this.hasDurationEvent = true,
-    this.hasPositionEvent = true,
     this.hasPlayerStateEvent = true,
     this.hasErrorEvent = true,
   });
